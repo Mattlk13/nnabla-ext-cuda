@@ -97,7 +97,7 @@ void forward_batch_parallel_reduction(
         tmp_mean_buffer_per_block, tmp_variance_buffer_per_block, blocks,
         decay_rate, 1. / N, (float)N / (N - 1),
         /* Output */
-        m + i, v + i, rm + i, rv + i);
+        m + i, v + i, rm ? rm + i : nullptr, rv ? rv + i : nullptr);
   }
 #endif
   NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(forward_batch_kernel_gamma_beta_trans,
@@ -126,7 +126,7 @@ void backward_batch_data_parallel_reduction(
     backward_batch_data_kernel_mean_variance_preprocess<<<
         blocks, NBLA_CUDA_NUM_THREADS>>>(
         /* Input */
-        N, dy_trans + i * N, x_trans + i * N, g + i, m + i,
+        N, dy_trans + i * N, x_trans + i * N, g ? g + i : nullptr, m + i,
         /* Output */
         tmp_mean_buffer_per_block, tmp_variance_buffer_per_block,
         tmp_t_buffer_per_block);
@@ -167,7 +167,7 @@ void backward_batch_gamma_beta_parallel_reduction(
         /* Input */
         gamma_reduction_space, beta_reduction_space, blocks,
         /* Output */
-        dg + i, db + i);
+        dg ? dg + i : nullptr, db ? db + i : nullptr);
   }
 }
 }

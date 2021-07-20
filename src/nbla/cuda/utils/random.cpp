@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,8 @@
 
 #include <nbla/cuda/array/cuda_array.hpp>
 #include <nbla/cuda/utils/random.hpp>
+#include <nbla/nd_array.hpp>
+#include <nbla/random_manager.hpp>
 
 #include <random>
 
@@ -23,7 +25,7 @@ curandGenerator_t curand_create_generator(int seed) {
   curandGenerator_t gen;
   NBLA_CURAND_CHECK(curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT));
   if (seed == -1) {
-    seed = std::random_device()();
+    seed = SingletonManager::get<RandomManager>()->get_seed();
   }
   curand_set_seed(gen, seed);
   return gen;
@@ -42,10 +44,12 @@ void curand_generate_randn<float>(curandGenerator_t gen, float mu, float sigma,
                                   float *dev_ptr, size_t size) {
   if (size % 2 != 0) {
     // Normal generator requires length with multiple of two.
-    CudaCachedArray arr(
-        size + 1, get_dtype<float>(),
-        Context().set_device_id(std::to_string(cuda_get_device())));
-    float *buff = arr.pointer<float>();
+    Context ctx;
+    ctx.set_device_id(std::to_string(cuda_get_device()));
+    ctx.set_array_class("CudaCachedArray");
+    NdArray arr(Shape_t{static_cast<Size_t>(size + 1)});
+    float *buff = arr.cast(get_dtype<float>(), ctx, true)->pointer<float>();
+
     NBLA_CURAND_CHECK(curandGenerateNormal(gen, buff, size + 1, mu, sigma));
     NBLA_CUDA_CHECK(cudaMemcpy(dev_ptr, buff, size * sizeof(float),
                                cudaMemcpyDeviceToDevice));

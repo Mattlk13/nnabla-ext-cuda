@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -123,6 +123,61 @@ def get_cpu_extopts(lib):
     return ext_opts
 
 
+def get_cpu_include_dir():
+    from six.moves.configparser import ConfigParser
+
+    # Parse setup.cfg
+    path_cfg = join(dirname(__file__), "setup.cfg")
+    if not isfile(path_cfg):
+        raise ValueError(
+            "`setup.cfg` does not exist. Read installation document and install using CMake.")
+    cfgp = ConfigParser()
+    cfgp.read(path_cfg)
+
+    # Read cpu lib info
+    cpu_include_dir = cfgp.get("cmake", "cpu_include_dir")
+    print("CPU Include directory:", cpu_include_dir)
+
+    return cpu_include_dir
+
+
+def get_cpu_cython_path():
+    from six.moves.configparser import ConfigParser
+
+    # Parse setup.cfg
+    path_cfg = join(dirname(__file__), "setup.cfg")
+    if not isfile(path_cfg):
+        raise ValueError(
+            "`setup.cfg` does not exist. Read installation document and install using CMake.")
+    cfgp = ConfigParser()
+    cfgp.read(path_cfg)
+
+    # Read cuda header info
+    cpu_cython_path = cfgp.get("cmake", "cpu_cython_path")
+    print("CPU Cython path:", cpu_cython_path)
+
+    return cpu_cython_path
+
+
+def get_cuda_include_dir():
+    from six.moves.configparser import ConfigParser
+
+    # Parse setup.cfg
+    path_cfg = join(dirname(__file__), "setup.cfg")
+    if not isfile(path_cfg):
+        raise ValueError(
+            "`setup.cfg` does not exist. Read installation document and install using CMake.")
+    cfgp = ConfigParser()
+    cfgp.read(path_cfg)
+
+    # Read cpu lib info
+    cuda_include_dir = os.path.join(
+        cfgp.get("cmake", "cuda_toolkit_root_dir"), "include")
+    print("CUDA Include directory:", cuda_include_dir)
+
+    return cuda_include_dir
+
+
 def cuda_config(root_dir, cuda_lib, ext_opts, lib_dirs):
     # With CUDA
     src_dir = join(root_dir, 'src')
@@ -155,6 +210,8 @@ def cuda_config(root_dir, cuda_lib, ext_opts, lib_dirs):
                 ls = l.strip().decode('ascii').split()
                 if len(ls) >= 3:
                     libname = ls[0]
+                    if libname == "libcuda.so.1":
+                        continue
                     libfile = ls[2]
 
                     # Copy libraries into WHL file.
@@ -186,10 +243,20 @@ def cuda_config(root_dir, cuda_lib, ext_opts, lib_dirs):
                         for d in lib_dirs:
                             for currentdir, dirs, files in os.walk(d):
                                 if l in files and not copied and l not in libs:
-                                    print('Copying {}'.format(l))
                                     path_in = join(currentdir, l)
-                                    libs = search_dependencies(path_in, libs)
+                                    if l.lower() == 'cudnn64_8.dll':
+                                        for cudnn_lib in files:
+                                            if cudnn_lib.lower != 'cudnn64_8.lib':
+                                                print(
+                                                    'Copying {}'.format(cudnn_lib))
+                                                shutil.copyfile(join(currentdir, cudnn_lib), join(
+                                                    path_cuda_pkg, cudnn_lib))
+                                                libs.append(cudnn_lib)
+                                    else:
+                                        libs = search_dependencies(
+                                            path_in, libs)
                                     path_out = join(path_cuda_pkg, l)
+                                    print('Copying {}'.format(l))
                                     shutil.copyfile(path_in, path_out)
                                     libs.append(l)
                                     copied = True
@@ -205,6 +272,8 @@ def cuda_config(root_dir, cuda_lib, ext_opts, lib_dirs):
     cuda_ext_opts = copy.deepcopy(ext_opts)
     cuda_ext_opts['libraries'] += [cuda_lib.name]
     cuda_ext_opts['library_dirs'] += [dirname(cuda_lib.path)]
+    cuda_ext_opts['include_dirs'] += [get_cpu_include_dir(),
+                                      get_cuda_include_dir()]
     ext_modules = [
         Extension(cuda_pkg + '.init',
                   [join(path_cuda_pkg, 'init.pyx')],
@@ -274,14 +343,10 @@ def get_setup_config(root_dir):
     package_data.update(utils_ext.package_data)
     ext_modules += utils_ext.ext_modules
 
-    cuda_version = ''
+    cuda_version = ''.join(__cuda_version__.split('.'))
+
     if 'WHL_NO_CUDA_SUFFIX' in os.environ and os.environ['WHL_NO_CUDA_SUFFIX'] == 'True':
         cuda_version = ''
-    elif 'CUDA_VERSION_MAJOR' in os.environ:
-        cuda_version = os.environ['CUDA_VERSION_MAJOR'] + \
-            os.environ['CUDA_VERSION_MINOR']
-    elif 'CUDAVER' in os.environ:
-        cuda_version = os.environ['CUDAVER']
 
     if 'MULTI_GPU_SUFFIX' in os.environ:
         cuda_version += os.environ['MULTI_GPU_SUFFIX']
@@ -332,10 +397,12 @@ if __name__ == '__main__':
     pkg_info, cfg = get_setup_config(root_dir)
 
     # Cythonize
-    ext_modules = cythonize(cfg.ext_modules, compiler_directives={
-                            "embedsignature": True,
-                            "c_string_type": 'str',
-                            "c_string_encoding": "ascii"})
+    ext_modules = cythonize(cfg.ext_modules,
+                            include_path=[get_cpu_cython_path()],
+                            compiler_directives={
+                                "embedsignature": True,
+                                "c_string_type": 'str',
+                                "c_string_encoding": "ascii"})
 
     # Setup
     setup(

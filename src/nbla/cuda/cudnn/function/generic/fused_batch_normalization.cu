@@ -66,6 +66,16 @@ void FusedBatchNormalizationCudaCudnn<T>::setup_impl(const Variables &inputs,
     can_use_bn_ex = false;
   }
 #endif // _WIN32
+  if (can_use_bn_ex) {
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, this->device_);
+    if ((prop.major == 5) && (prop.minor == 3)) {
+      NBLA_LOG_WARN("FusedBatchNormalization is not supported by CuDNN on "
+                    "compute archtitecture 5.3 - "
+                    "fallback to composite implementation.")
+      can_use_bn_ex = false;
+    }
+  }
   if (!can_use_bn_ex || outputs.size() == 3) {
     this->fall_back_func_ = make_shared<FusedBatchNormalization<T>>(
         this->ctx_, this->axes_, this->decay_rate_, this->eps_,
@@ -125,8 +135,9 @@ void FusedBatchNormalizationCudaCudnn<T>::setup_impl(const Variables &inputs,
 }
 
 template <class T>
-void FusedBatchNormalizationCudaCudnn<T>::forward_impl(
-    const Variables &inputs, const Variables &outputs) {
+void FusedBatchNormalizationCudaCudnn<T>::fused_batch_norm_forward(
+    const Variables &inputs, const Variables &outputs,
+    const bool update_inputs) {
   NBLA_CHECK(this->batch_stat_, error_code::runtime,
              "If batch_stat is false, this function should not be called.");
   cuda_set_device(std::stoi(this->ctx_.device_id));
@@ -165,12 +176,14 @@ void FusedBatchNormalizationCudaCudnn<T>::forward_impl(
                 ->cast(DRV_BN_T(), this->ctx_, true)
                 ->pointer(); // batch var
   // Inputs/Outputs
-  void *rm = inputs[3]
-                 ->data()
-                 ->cast(DRV_BN_T(), this->ctx_)
-                 ->pointer(); // running mean
-  void *rv =
-      inputs[4]->data()->cast(DRV_BN_T(), this->ctx_)->pointer(); // running var
+  void *rm = !update_inputs ? nullptr : inputs[3]
+                                            ->data()
+                                            ->cast(DRV_BN_T(), this->ctx_)
+                                            ->pointer(); // running mean
+  void *rv = !update_inputs ? nullptr : inputs[4]
+                                            ->data()
+                                            ->cast(DRV_BN_T(), this->ctx_)
+                                            ->pointer(); // running var
 
   auto a = get_cudnn_scalar_arg<T>(1);
   auto b = get_cudnn_scalar_arg<T>(0);
@@ -194,6 +207,18 @@ void FusedBatchNormalizationCudaCudnn<T>::forward_impl(
       reserve_ptr,             /* reserve space pointer */
       reserve_size_            /* reserve space size */
       ));
+}
+
+template <class T>
+void FusedBatchNormalizationCudaCudnn<T>::forward_impl(
+    const Variables &inputs, const Variables &outputs) {
+  fused_batch_norm_forward(inputs, outputs, true /* update_inputs */);
+}
+
+template <class T>
+void FusedBatchNormalizationCudaCudnn<T>::recompute_impl(
+    const Variables &inputs, const Variables &outputs) {
+  fused_batch_norm_forward(inputs, outputs, false /* update_inputs */);
 }
 
 template <class T>
@@ -238,12 +263,12 @@ void FusedBatchNormalizationCudaCudnn<T>::backward_impl(
         prop_down_workspace_size, inputs[1]->size() * sizeof_dtype(DRV_BN_T()));
   }
   void *prop_down_buf = nullptr;
-  shared_ptr<CudaCachedArray> prop_down_workspace(
-      prop_down_workspace_size ? new CudaCachedArray(prop_down_workspace_size,
-                                                     dtypes::BYTE, this->ctx_)
-                               : nullptr);
+  NdArray prop_down_workspace;
   if (prop_down_workspace_size) {
-    prop_down_buf = prop_down_workspace->pointer();
+    prop_down_workspace.reshape({static_cast<Size_t>(prop_down_workspace_size)},
+                                true);
+    prop_down_buf = prop_down_workspace.cast(dtypes::BYTE, this->ctx_, true)
+                        ->pointer<void>();
   }
 
   Tw *dx = propagate_down[0]

@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -57,6 +57,21 @@ cudaGetLastError is used to clear previous error happening at "condition".
       NBLA_ERROR(error_code::target_specific, "(%s) failed with \"%s\" (%s).", \
                  #condition, cudaGetErrorString(error),                        \
                  cudaGetErrorName(error));                                     \
+    }                                                                          \
+  }
+
+/**
+Check CUDA driver error.
+*/
+#define NBLA_CUDA_DRIVER_CHECK(condition)                                      \
+  {                                                                            \
+    CUresult status = (condition);                                             \
+    if (status != CUDA_SUCCESS) {                                              \
+      const char *err_name, *err_str;                                          \
+      cuGetErrorName(status, &err_name);                                       \
+      cuGetErrorString(status, &err_str);                                      \
+      NBLA_ERROR(error_code::target_specific, "(%s) failed with \"%s\" (%s).", \
+                 #condition, err_str, err_name);                               \
     }                                                                          \
   }
 
@@ -225,6 +240,10 @@ int cuda_set_device(int device);
 @return index of device
 */
 int cuda_get_device();
+
+/** Get free and total device memory size.
+ */
+NBLA_CUDA_API vector<size_t> cuda_mem_get_info();
 
 /** Get device properties of current CUDA device.
  */

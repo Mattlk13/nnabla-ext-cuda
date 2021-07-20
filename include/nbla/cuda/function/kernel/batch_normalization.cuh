@@ -49,10 +49,14 @@ forward_batch_running_mean_var_kernel(const int size1, const int size02,
   NBLA_CUDA_KERNEL_LOOP(i1, size1) {
     m[i1] /= n_procs;
     v[i1] = v[i1] / n_procs - m[i1] * m[i1];
-    rm[i1] = decay_rate * rm[i1] + (1. - decay_rate) * m[i1];
-    rv[i1] = decay_rate * rv[i1] +
-             (1. - decay_rate) * v[i1] * (n_procs * size02) /
-                 ((n_procs * size02) - 1);
+    if (rm) {
+      rm[i1] = decay_rate * rm[i1] + (1. - decay_rate) * m[i1];
+    }
+    if (rv) {
+      rv[i1] = decay_rate * rv[i1] +
+               (1. - decay_rate) * v[i1] * (n_procs * size02) /
+                   ((n_procs * size02) - 1);
+    }
   }
 }
 template <typename T>
@@ -222,9 +226,13 @@ __global__ void forward_batch_mean_variance_kernel(
     tmp_v = tmp_v / size02 - tmp_m * tmp_m;
     v[i1] = tmp_v;
 
-    rm[i1] = decay_rate * rm[i1] + (1. - decay_rate) * tmp_m;
-    rv[i1] =
-        decay_rate * rv[i1] + (1. - decay_rate) * tmp_v * size02 / (size02 - 1);
+    if (rm) {
+      rm[i1] = decay_rate * rm[i1] + (1. - decay_rate) * tmp_m;
+    }
+    if (rv) {
+      rv[i1] = decay_rate * rv[i1] +
+               (1. - decay_rate) * tmp_v * size02 / (size02 - 1);
+    }
   }
 }
 
@@ -240,7 +248,9 @@ __global__ void forward_batch_gamma_beta_kernel(
     const int i2 = idx % size2;
     const int i = i0 * size12 + i1 * size2 + i2;
     const T stdvar = sqrt(v[i1] + eps);
-    y[i] = (x[i] - m[i1]) * gamma[i1] / stdvar + beta[i1];
+    const T scale = gamma ? gamma[i1] : (T)1;
+    const T bias = beta ? beta[i1] : (T)0;
+    y[i] = (x[i] - m[i1]) * scale / stdvar + bias;
   }
 }
 
@@ -282,9 +292,13 @@ __global__ void forward_batch_kernel_mean_variance_postprocess(
     const float variance = mean_variance.y * inv_N - mean * mean;
     m[blockIdx.x] = mean;
     v[blockIdx.x] = variance;
-    rm[blockIdx.x] = decay_rate * rm[blockIdx.x] + (1. - decay_rate) * mean;
-    rv[blockIdx.x] =
-        decay_rate * rv[blockIdx.x] + (1. - decay_rate) * variance * svar;
+    if (rm) {
+      rm[blockIdx.x] = decay_rate * rm[blockIdx.x] + (1. - decay_rate) * mean;
+    }
+    if (rv) {
+      rv[blockIdx.x] =
+          decay_rate * rv[blockIdx.x] + (1. - decay_rate) * variance * svar;
+    }
   }
 }
 
@@ -303,7 +317,9 @@ __global__ void forward_batch_kernel_gamma_beta_trans(
     const int axis_idx = int(i / N);
     const T inv_stdvar = 1. / sqrt(v[axis_idx] + eps);
     inv_sqrt_variance[axis_idx] = inv_stdvar;
-    y[o] = (x[i] - m[axis_idx]) * gamma[axis_idx] * inv_stdvar + beta[axis_idx];
+    const T scale = gamma ? gamma[axis_idx] : (T)1;
+    const T bias = beta ? beta[axis_idx] : (T)0;
+    y[o] = (x[i] - m[axis_idx]) * scale * inv_stdvar + bias;
   }
 }
 
@@ -325,7 +341,9 @@ __global__ void forward_global_kernel(const int size102_, const int size0_,
     const int i = i0 * size12_ + i1 * size2_ + i2;
     const T mean = rm[i1];
     const T stdvar = sqrt(rv[i1] + eps_);
-    y[i] = (x[i] - mean) * gamma[i1] / stdvar + beta[i1];
+    const T scale = gamma ? gamma[i1] : (T)1;
+    const T bias = beta ? beta[i1] : (T)0;
+    y[i] = (x[i] - mean) * scale / stdvar + bias;
   }
 }
 
@@ -347,8 +365,8 @@ __global__ void backward_batch_data_mean_variance_kernel(
       const int i0 = i02 / size2;
       const int i2 = i02 % size2;
       const int i = i0 * size12 + i1 * size2 + i2;
-      const T dxh = dy[i] * g[i1]; // Grad of x hat.
-      const T cx = x[i] - m[i1];   // x - mean
+      const T dxh = dy[i] * (g ? g[i1] : (T)1); // Grad of x hat.
+      const T cx = x[i] - m[i1];                // x - mean
       tmp_dvar += dxh * cx;
       tmp_dmean += dxh;
       tmp += cx;
@@ -373,7 +391,7 @@ __global__ void backward_batch_data_dx_kernel(
     const int i0 = (idx / size2) % size0;
     const int i2 = idx % size2;
     const int i = i0 * size12 + i1 * size2 + i2;
-    dx[i] += dy[i] * g[i1] / sqrt(v[i1] + eps) +
+    dx[i] += dy[i] * (g ? g[i1] : (T)1) / sqrt(v[i1] + eps) +
              dvar[i1] * 2 * (x[i] - m[i1]) / (size02) + dmean[i1] / (size02);
   }
 }
@@ -387,7 +405,7 @@ __global__ void backward_batch_data_kernel_mean_variance_preprocess(
   mean_variance.y = 0; // dvar
   mean_variance.z = 0; // tmp
   NBLA_CUDA_1D_GRID_STRIDE_LOOP(i, N) {
-    const float dxh = dy[i] * g[0];
+    const float dxh = dy[i] * (g ? g[0] : (T)1);
     const float cx = x[i] - m[0];
     mean_variance.y += (float)(dxh * cx);
     mean_variance.x += (float)dxh;
@@ -442,7 +460,7 @@ __global__ void backward_batch_data_kernel_gamma_beta_trans(
       i += k * y_strides[axes[d]];
     }
     int axis_idx = (int)(i * inv_N);
-    dx[o] += dy[i] * g[axis_idx] * inv_sqrt_variance[axis_idx] +
+    dx[o] += dy[i] * (g ? g[axis_idx] : (T)1) * inv_sqrt_variance[axis_idx] +
              dvar[axis_idx] * 2 * (x[i] - m[axis_idx]) * inv_N +
              dmean[axis_idx] * inv_N;
   }
@@ -471,8 +489,10 @@ backward_batch_gamma_beta_kernel(const int size1_, const int size2_,
       dbeta += value;
       dgamma += value * (x[i] - mean);
     }
-    db[i1] += dbeta;
-    dg[i1] += dgamma * inv_sqrt_variance;
+    if (db)
+      db[i1] += dbeta;
+    if (dg)
+      dg[i1] += dgamma * inv_sqrt_variance;
   }
 }
 
@@ -510,8 +530,10 @@ __global__ void backward_batch_kernel_gamma_beta_postprocess(
   }
   gamma_beta = blockReduceSumOfFloat2(gamma_beta);
   if (threadIdx.x == 0) {
-    dg[blockIdx.x] += gamma_beta.x;
-    db[blockIdx.x] += gamma_beta.y;
+    if (dg)
+      dg[blockIdx.x] += gamma_beta.x;
+    if (db)
+      db[blockIdx.x] += gamma_beta.y;
   }
 }
 }

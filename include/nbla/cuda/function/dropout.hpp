@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,8 +28,9 @@ template <typename T> class DropoutCuda : public Dropout<T> {
 public:
   typedef typename CudaType<T>::type Tc;
 
-  explicit DropoutCuda(const Context &ctx, double p, int seed = -1)
-      : Dropout<T>(ctx, T(p), seed) {
+  explicit DropoutCuda(const Context &ctx, double p, int seed = -1,
+                       bool output_mask = false)
+      : Dropout<T>(ctx, T(p), seed, output_mask) {
     cuda_set_device(std::stoi(ctx.device_id));
     NBLA_CHECK(this->p_ > 0., error_code::value,
                "p must be between 0.0 and 1.0");
@@ -39,8 +41,6 @@ public:
     if (this->seed_ != -1) {
       // CURAND_RNG_PSEUDO_DEFAULT is CURAND_RNG_PSEUDO_XORWOW.
       curand_generator_ = curand_create_generator(this->seed_);
-    } else {
-      curand_generator_ = SingletonManager::get<Cuda>()->curand_generator();
     }
   }
   virtual ~DropoutCuda() {
@@ -60,6 +60,10 @@ protected:
   virtual void backward_impl(const Variables &inputs, const Variables &outputs,
                              const vector<bool> &propagate_down,
                              const vector<bool> &accum);
+  virtual void recompute_impl(const Variables &inputs,
+                              const Variables &outputs);
+
+  void dropout(const Variables &inputs, const Variables &outputs);
 };
 }
 #endif

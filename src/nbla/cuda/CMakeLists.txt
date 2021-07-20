@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,13 +18,15 @@ set(CUDA_SELECT_NVCC_ARCH_ARG "Auto" CACHE STRING "Select NVCC Arch. Options: Co
 find_package(CUDA REQUIRED)
 message("-- CUDA--")
 message("Version: " ${CUDA_VERSION})
+message("Library: " ${CUDA_CUDA_LIBRARY})
 message("Runtime: " ${CUDA_CUDART_LIBRARY})
 message("CUBLAS: " ${CUDA_CUBLAS_LIBRARIES})
 message("CURAND: " ${CUDA_curand_LIBRARY})
 message("CUFFT: " ${CUDA_CUFFT_LIBRARIES})
 set(NBLA_CUDA_INCLUDE_DIRS ${CUDA_INCLUDE_DIRS})
-set(NBLA_CUDA_LINKER_LIBS ${CUDA_CUDART_LIBRARY})
 list(APPEND NBLA_CUDA_LINKER_LIBS
+  ${CUDA_CUDA_LIBRARY}
+  ${CUDA_CUDART_LIBRARY}
   ${CUDA_CUBLAS_LIBRARIES}
   ${CUDA_curand_LIBRARY}
   ${CUDA_CUFFT_LIBRARIES}
@@ -73,8 +75,15 @@ find_package(cuDNN REQUIRED)
 # Get CuDNN version
 
 foreach(cudnn_include_dir ${CUDNN_INCLUDE_DIRS})
-  if (EXISTS ${cudnn_include_dir}/cudnn.h)
-    file(STRINGS ${cudnn_include_dir}/cudnn.h cudnn_defines)
+  set(cudnn_version_file OFF)
+  if (EXISTS ${cudnn_include_dir}/cudnn_version.h)
+    set(cudnn_version_file "${cudnn_include_dir}/cudnn_version.h")
+  elseif(EXISTS ${cudnn_include_dir}/cudnn.h)
+    set(cudnn_version_file "${cudnn_include_dir}/cudnn.h")
+  endif()
+
+  if (cudnn_version_file)
+    file(STRINGS ${cudnn_version_file} cudnn_defines)
     string(REGEX REPLACE [[^.*CUDNN_MAJOR +([0-9]+).*$]] [[\1]] cudnn_major ${cudnn_defines})
     string(REGEX REPLACE [[^.*CUDNN_MINOR +([0-9]+).*$]] [[\1]] cudnn_minor ${cudnn_defines})
     string(REGEX REPLACE [[^.*CUDNN_PATCHLEVEL +([0-9]+).*$]] [[\1]] cudnn_patchlevel ${cudnn_defines})
@@ -100,6 +109,7 @@ set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};${ARCH_FLAGS}")
 
 file(GLOB CPP_SOURCES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
   ./*.cpp
+  communicator/*.cpp
   memory/*.cpp
   array/*.cpp
   cudnn/*.cpp

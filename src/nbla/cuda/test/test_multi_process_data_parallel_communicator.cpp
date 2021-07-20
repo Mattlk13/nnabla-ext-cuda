@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
+#ifdef FEATURE_DIST_TRAIN
 #include "gtest/gtest.h"
 
 #include <nbla/computation_graph/computation_graph.hpp>
@@ -167,3 +167,4 @@ TEST(MultiProcessDataParallelCommunicatorTest, PackingAndUnpacking) {
   EXPECT_FLOAT_EQ(51.0f, data[0]);
 }
 }
+#endif

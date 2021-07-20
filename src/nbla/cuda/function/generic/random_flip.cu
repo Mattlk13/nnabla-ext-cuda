@@ -42,6 +42,8 @@ void RandomFlipCuda<T>::setup_impl(const Variables &inputs,
     auto itr = std::find(this->axes_.begin(), this->axes_.end(), i);
     onehot_axses_cpu[i] = itr != this->axes_.end();
   }
+
+  output_data_for_recomp_.reshape(outputs[0]->shape(), true);
 }
 
 template <typename T, bool accum>
@@ -75,13 +77,23 @@ __global__ void kernel_random_flip(const int num, const int dim, T *y,
 }
 
 template <typename T>
+void RandomFlipCuda<T>::setup_recompute_impl(const Variables &inputs,
+                                             const Variables &outputs) {
+  save_output_data_ = true;
+}
+
+template <typename T>
 void RandomFlipCuda<T>::forward_impl(const Variables &inputs,
                                      const Variables &outputs) {
   cuda_set_device(this->device_);
-  this->flip_flags_ = make_shared<CudaCachedArray>(
-      this->size_ * inputs[0]->ndim(), dtypes::INT, this->ctx_);
-  int *flip_flags = this->flip_flags_->template pointer<int>();
-  curand_generate_rand<int>(curand_generator_, 0, 255, flip_flags,
+  this->flip_flags_.reshape(
+      Shape_t{static_cast<Size_t>(this->size_ * inputs[0]->ndim())}, true);
+  int *flip_flags = this->flip_flags_.cast(dtypes::INT, this->ctx_, true)
+                        ->template pointer<int>();
+  curandGenerator_t &gen =
+      this->seed_ == -1 ? SingletonManager::get<Cuda>()->curand_generator()
+                        : curand_generator_;
+  curand_generate_rand<int>(gen, 0, 255, flip_flags,
                             this->size_ * inputs[0]->ndim());
   const Tcu *x = inputs[0]->get_data_pointer<Tcu>(this->ctx_);
   Tcu *y = outputs[0]->cast_data_and_get_pointer<Tcu>(this->ctx_, true);
@@ -96,6 +108,19 @@ void RandomFlipCuda<T>::forward_impl(const Variables &inputs,
                                  inputs[0]->ndim(), y, x, shape_info_gpu,
                                  flip_flags, onehot_axses_gpu, this->base_axis_,
                                  this->size_);
+
+  // Save output data for recomputation.
+  if (save_output_data_) {
+    save_output_data<Tcu>(this->ctx_, outputs[0], output_data_for_recomp_);
+  }
+}
+
+template <typename T>
+void RandomFlipCuda<T>::recompute_impl(const Variables &inputs,
+                                       const Variables &outputs) {
+  // Restore output data of previous forward execution.
+  restore_output_data<Tcu>(this->ctx_, output_data_for_recomp_, outputs[0]);
+  save_output_data_ = false;
 }
 
 template <typename T>
@@ -107,7 +132,8 @@ void RandomFlipCuda<T>::backward_impl(const Variables &inputs,
     return;
   }
   cuda_set_device(this->device_);
-  int *flip_flags = this->flip_flags_->template pointer<int>();
+  int *flip_flags = this->flip_flags_.cast(dtypes::INT, this->ctx_, true)
+                        ->template pointer<int>();
   Tcu *dx = inputs[0]->cast_grad_and_get_pointer<Tcu>(this->ctx_, !accum[0]);
   const Tcu *dy = outputs[0]->get_grad_pointer<Tcu>(this->ctx_);
   size_t size = outputs[0]->size();

@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@
 #include <nbla/context.hpp>
 #include <nbla/cuda/array/cuda_array.hpp>
 #include <nbla/cuda/communicator/nccl_utils.hpp>
+#include <nbla/cuda/communicator/watch_dog.hpp>
 #include <nbla/variable.hpp>
 
 #include <memory>
@@ -59,6 +60,9 @@ template <typename T>
 class NBLA_API MultiProcessDataParallelCommunicatorNccl
     : public MultiProcessDataParallelCommunicator<T> {
 protected:
+  int all_reduce_timeout_ = 500;             // timeout=50s
+  static const int TIMES_FOR_OTHER_NODE = 5; // times for other node
+  Watchdog watch_dog_;
   int device_id_;
 
   static bool mpi_initialized_;
@@ -145,6 +149,9 @@ public:
                           const string &group = "world");
   virtual CommunicatorBackwardCallbackPtr
   all_reduce_callback(const vector<NdArrayPtr> &ndarray_list, size_t pack_size,
+                      bool division = false, const string &group = "world");
+  virtual CommunicatorBackwardCallbackPtr
+  all_reduce_callback(NdArrayPtr ndarray, size_t pack_size,
                       bool division = false, const string &group = "world");
   virtual void reduce_scatter(const vector<NdArrayPtr> &ndarray_list,
                               NdArrayPtr ndarray, bool division = false,

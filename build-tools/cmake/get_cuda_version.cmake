@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,8 +15,15 @@
 find_package(CUDA REQUIRED)
 find_package(cuDNN REQUIRED)
 foreach(cudnn_include_dir ${CUDNN_INCLUDE_DIRS})
-  if (EXISTS ${cudnn_include_dir}/cudnn.h)
-    file(STRINGS ${cudnn_include_dir}/cudnn.h cudnn_defines)
+  set(cudnn_version_file OFF)
+  if (EXISTS ${cudnn_include_dir}/cudnn_version.h)
+    set(cudnn_version_file "${cudnn_include_dir}/cudnn_version.h")
+  elseif(EXISTS ${cudnn_include_dir}/cudnn.h)
+    set(cudnn_version_file "${cudnn_include_dir}/cudnn.h")
+  endif()
+
+  if (cudnn_version_file)
+    file(STRINGS ${cudnn_version_file} cudnn_defines)
     string(REGEX REPLACE [[^.*CUDNN_MAJOR +([0-9]+).*$]] [[\1]] cudnn_major ${cudnn_defines})
     string(REGEX REPLACE [[^.*CUDNN_MINOR +([0-9]+).*$]] [[\1]] cudnn_minor ${cudnn_defines})
     string(REGEX REPLACE [[^.*CUDNN_PATCHLEVEL +([0-9]+).*$]] [[\1]] cudnn_patchlevel ${cudnn_defines})

@@ -154,15 +154,23 @@ void RandomEraseCuda<T>::setup_impl(const Variables &inputs,
   cuda_set_device(this->device_);
 
   auto shape = inputs[0]->shape();
-  auto H = this->channel_last_ ? shape[this->base_axis_ + 1]
+  auto H = this->channel_last_ ? shape[this->base_axis_]
                                : shape[this->base_axis_ + 1];
-  auto W = this->channel_last_ ? shape[this->base_axis_]
+  auto W = this->channel_last_ ? shape[this->base_axis_ + 1]
                                : shape[this->base_axis_ + 2];
   this->state_ = std::make_shared<NdArray>(
       Shape_t{static_cast<long>(H * W * sizeof(curandState))});
   curandState *func_state = this->state_->cast(get_dtype<char>(), this->ctx_)
                                 ->template pointer<curandState>();
   curand_initialize(H * W, this->seed_, 0, func_state);
+
+  output_data_for_recomp_.reshape(outputs[0]->shape(), true);
+}
+
+template <typename T>
+void RandomEraseCuda<T>::setup_recompute_impl(const Variables &inputs,
+                                              const Variables &outputs) {
+  save_output_data_ = true;
 }
 
 template <typename T>
@@ -178,9 +186,9 @@ void RandomEraseCuda<T>::forward_impl(const Variables &inputs,
                       1, std::multiplies<size_t>());
   auto C = this->channel_last_ ? shape[this->base_axis_ + 2]
                                : shape[this->base_axis_];
-  auto H = this->channel_last_ ? shape[this->base_axis_ + 1]
+  auto H = this->channel_last_ ? shape[this->base_axis_]
                                : shape[this->base_axis_ + 1];
-  auto W = this->channel_last_ ? shape[this->base_axis_]
+  auto W = this->channel_last_ ? shape[this->base_axis_ + 1]
                                : shape[this->base_axis_ + 2];
 
   // Generate 5 x N x B (x C), 5 is {prob, Se, re, xe, ye}
@@ -191,8 +199,11 @@ void RandomEraseCuda<T>::forward_impl(const Variables &inputs,
       this->random_coordinates_->cast(get_dtype<float>(), this->ctx_)
           ->template pointer<float>();
 
-  curand_generate_rand<float>(this->curand_generator_, 0.0f, 1.0f,
-                              random_coords, this->random_coordinates_->size());
+  curandGenerator_t &gen =
+      this->seed_ == -1 ? SingletonManager::get<Cuda>()->curand_generator()
+                        : curand_generator_;
+  curand_generate_rand<float>(gen, 0.0f, 1.0f, random_coords,
+                              this->random_coordinates_->size());
 
   // Create 5 x N x B (x C), 5 is {prob, ye_start, xe_start, ye_end, xe_end}
   // inplace
@@ -237,6 +248,19 @@ void RandomEraseCuda<T>::forward_impl(const Variables &inputs,
   if (!this->ste_fine_grained_) {
     this->random_coordinates_ = nullptr;
   }
+
+  // Save output data for recomputation.
+  if (save_output_data_) {
+    save_output_data<Tcu>(this->ctx_, outputs[0], output_data_for_recomp_);
+  }
+}
+
+template <typename T>
+void RandomEraseCuda<T>::recompute_impl(const Variables &inputs,
+                                        const Variables &outputs) {
+  // Restore output data of previous forward execution.
+  restore_output_data<Tcu>(this->ctx_, output_data_for_recomp_, outputs[0]);
+  save_output_data_ = false;
 }
 
 template <typename T>
@@ -274,9 +298,9 @@ void RandomEraseCuda<T>::backward_impl(const Variables &inputs,
                       1, std::multiplies<size_t>());
   auto C = this->channel_last_ ? shape[this->base_axis_ + 2]
                                : shape[this->base_axis_];
-  auto H = this->channel_last_ ? shape[this->base_axis_ + 1]
+  auto H = this->channel_last_ ? shape[this->base_axis_]
                                : shape[this->base_axis_ + 1];
-  auto W = this->channel_last_ ? shape[this->base_axis_]
+  auto W = this->channel_last_ ? shape[this->base_axis_ + 1]
                                : shape[this->base_axis_ + 2];
   auto dstride = this->channel_last_ ? make_int3(H * W * C, W * C, C)
                                      : make_int3(C * H * W, H * W, W);

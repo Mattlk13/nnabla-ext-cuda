@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -36,6 +37,7 @@ public:
   virtual vector<string> allowed_array_classes() {
     return SingletonManager::get<Cuda>()->array_classes();
   }
+  virtual bool grad_depends_output_data(int i, int o) const { return true; }
 
 protected:
   int seq_len_;
@@ -60,7 +62,7 @@ protected:
   WCudnnTensorDesc c_x_desc_; // dummy
   WCudnnTensorDesc c_y_desc_; // dummy
 
-  shared_ptr<CudaCachedArray> state_array_;
+  NdArray state_array_;
   WCudnnDropoutDesc dropout_desc_;
   WCudnnRNNDesc rnn_desc_;
   cudnnRNNInputMode_t inputMode;
@@ -72,7 +74,7 @@ protected:
 
   vector<pair<int, int>> weight_offsets_;
   vector<pair<int, int>> bias_offsets_;
-  shared_ptr<CudaCachedArray> mem_reservespace_{nullptr};
+  NdArray mem_reservespace_;
 
   virtual void copy_weight_bias_to_params(Tcu *params, const Tcu *w_init,
                                           const Tcu *weight, const Tcu *bias,
@@ -92,6 +94,7 @@ protected:
   virtual void backward_impl(const Variables &inputs, const Variables &outputs,
                              const vector<bool> &propagate_down,
                              const vector<bool> &accum);
+  virtual bool grad_depends_input_data_impl(int i, int o) const { return true; }
 };
 }
 #endif

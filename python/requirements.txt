@@ -7,11 +7,9 @@ PyYAML
 # Runtime
 Cython
 boto3
-h5py
-numpy
-onnx
+h5py<=3.1.0
+numpy==1.19.5
 protobuf
-requests
 six
 tqdm
 
@@ -20,5 +18,6 @@ autopep8
 # Test
 ipython
 pytest
+pytest-runner
 scipy
 scikit-image

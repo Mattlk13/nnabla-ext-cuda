@@ -48,18 +48,10 @@ void ConvolutionCudaCudnn<T>::setup_impl(const Variables &inputs,
   Convolution<T>::setup_impl(inputs, outputs);
   cudnn_handle_ = SingletonManager::get<CudnnHandleManager>()->handle(device_);
 
-  auto event_deleter = [](cudaEvent_t *ptr) {
-    NBLA_CUDA_CHECK(cudaEventDestroy(*ptr));
-    std::default_delete<cudaEvent_t>()(ptr);
-  };
-
-  dgrad_event_ = shared_ptr<cudaEvent_t>(new cudaEvent_t(), event_deleter);
-  NBLA_CUDA_CHECK(
-      cudaEventCreateWithFlags(dgrad_event_.get(), cudaEventDisableTiming));
-
-  default_event_ = shared_ptr<cudaEvent_t>(new cudaEvent_t(), event_deleter);
-  NBLA_CUDA_CHECK(
-      cudaEventCreateWithFlags(default_event_.get(), cudaEventDisableTiming));
+  dgrad_event_ =
+      SingletonManager::get<Cuda>()->cuda_event(cudaEventDisableTiming);
+  default_event_ =
+      SingletonManager::get<Cuda>()->cuda_event(cudaEventDisableTiming);
 
   dgrad_stream_ = SingletonManager::get<Cuda>()->get_stream(
       cudaStreamNonBlocking, nbla::CudaStreamId::CONVOLUTION_BWD, device_);
@@ -118,19 +110,21 @@ void ConvolutionCudaCudnn<T>::forward_impl(const Variables &inputs,
   if (inputs.size() == 3) {
     b = inputs[2]->get_data_pointer<Tw>(this->ctx_);
   }
-  auto workspace_size = rsc_->workspace_size();
-  unique_ptr<CudaCachedArray> workspace_arr;
+  const auto workspace_size = rsc_->fwd_workspace_size();
+  NdArray workspace_arr;
+
   void *workspace{nullptr};
   if (workspace_size) {
-    workspace_arr.reset(
-        new CudaCachedArray(workspace_size, dtypes::BYTE, this->ctx_));
-    workspace = workspace_arr->pointer<void>();
+    workspace_arr.reshape({static_cast<Size_t>(workspace_size)}, true);
+    workspace =
+        workspace_arr.cast(dtypes::BYTE, this->ctx_, true)->pointer<void>();
   }
+
 #if CUDNN_VERSION >= 7000
   NBLA_CUDNN_CHECK(cudnnConvolutionForward(
       cudnn_handle_, &alpha, rsc_->x_desc, x, rsc_->w_desc, w,
-      rsc_->conv_desc.desc, rsc_->fwd_algo, workspace, rsc_->fwd_workspace_size,
-      &beta, rsc_->y_desc, y));
+      rsc_->conv_desc.desc, rsc_->fwd_algo, workspace, workspace_size, &beta,
+      rsc_->y_desc, y));
   if (inputs.size() == 3) {
     NBLA_CUDNN_CHECK(cudnnAddTensor(cudnn_handle_, &alpha, rsc_->b_desc, b,
                                     &alpha, rsc_->y_desc, y));
@@ -140,7 +134,7 @@ void ConvolutionCudaCudnn<T>::forward_impl(const Variables &inputs,
     NBLA_CUDNN_CHECK(cudnnConvolutionForward(
         cudnn_handle_, &alpha, rsc_->x_desc, x + x_offset_ * g, rsc_->w_desc,
         w + w_offset_ * g, rsc_->conv_desc.desc, rsc_->fwd_algo, workspace,
-        rsc_->fwd_workspace_size, &beta, rsc_->y_desc, y + y_offset_ * g));
+        workspace_size, &beta, rsc_->y_desc, y + y_offset_ * g));
     if (inputs.size() == 3) {
       // TODO: Bias addition should be outside of the loop. In that case,
       // b_desc and y_desc must be whole image descriptor.
@@ -162,10 +156,12 @@ void ConvolutionCudaCudnn<T>::backward_impl(const Variables &inputs,
     return;
   }
   cuda_set_device(std::stoi(this->ctx_.device_id));
-  const T *dy = outputs[0]->get_grad_pointer<T>(this->ctx_);
-  const T *x;
-  const T *w;
-  T *dx, *dw, *db;
+
+  const T *dy = outputs.at(0)->get_grad_pointer<T>(this->ctx_);
+  const T *x = nullptr;
+  const T *w = nullptr;
+  T *dx, *dw, *db = nullptr;
+
   if (propagate_down[0]) {
     w = inputs[1]->get_data_pointer<T>(this->ctx_);
     dx = inputs[0]->cast_grad_and_get_pointer<T>(this->ctx_, !accum[0]);
@@ -174,21 +170,29 @@ void ConvolutionCudaCudnn<T>::backward_impl(const Variables &inputs,
     x = inputs[0]->get_data_pointer<T>(this->ctx_);
     dw = inputs[1]->cast_grad_and_get_pointer<T>(this->ctx_, !accum[1]);
   }
-  if (propagate_down[2]) {
+  if (inputs.size() == 3 && propagate_down[2]) {
     db = inputs[2]->cast_grad_and_get_pointer<T>(this->ctx_, !accum[2]);
   }
   auto alpha = get_cudnn_scalar_arg<T>(1);
-  auto workspace_size = rsc_->workspace_size();
-  unique_ptr<CudaCachedArray> workspace_arr, workspace_arr_dgrad;
+  // Workspaces must be allocated respectively because
+  // cudnnConvolutionBackwardFilter and cudnnConvolutionBackwardData
+  // run concurrently in different stream.
+  const auto workspace_size = rsc_->bwd_filter_workspace_size();
+  const auto workspace_size_dgrad = rsc_->bwd_data_workspace_size();
+  NdArray workspace_arr, workspace_arr_dgrad;
   void *workspace{nullptr}, *workspace_dgrad{nullptr};
   if (workspace_size) {
-    workspace_arr.reset(
-        new CudaCachedArray(workspace_size, dtypes::BYTE, this->ctx_));
-    workspace = workspace_arr->pointer<void>();
-    workspace_arr_dgrad.reset(
-        new CudaCachedArray(workspace_size, dtypes::BYTE, this->ctx_));
-    workspace_dgrad = workspace_arr_dgrad->pointer<void>();
+    workspace_arr.reshape({static_cast<Size_t>(workspace_size)}, true);
+    workspace =
+        workspace_arr.cast(dtypes::BYTE, this->ctx_, true)->pointer<void>();
   }
+  if (workspace_size_dgrad) {
+    workspace_arr_dgrad.reshape({static_cast<Size_t>(workspace_size_dgrad)},
+                                true);
+    workspace_dgrad = workspace_arr_dgrad.cast(dtypes::BYTE, this->ctx_, true)
+                          ->pointer<void>();
+  }
+
 #if CUDNN_VERSION >= 7000
   if (propagate_down[0]) {
     this->wait_default_on_dgrad();
@@ -196,7 +200,7 @@ void ConvolutionCudaCudnn<T>::backward_impl(const Variables &inputs,
     NBLA_CUDNN_CHECK(cudnnConvolutionBackwardData(
         dgrad_handle_, &alpha, rsc_->w_desc, w, rsc_->y_desc, dy,
         rsc_->conv_dgrad_desc.desc, rsc_->bwd_data_algo, workspace_dgrad,
-        rsc_->bwd_data_workspace_size, &beta, rsc_->x_desc, dx));
+        workspace_size_dgrad, &beta, rsc_->x_desc, dx));
   }
   if (propagate_down[1]) {
     /** Note:
@@ -209,7 +213,7 @@ void ConvolutionCudaCudnn<T>::backward_impl(const Variables &inputs,
     NBLA_CUDNN_CHECK(cudnnConvolutionBackwardFilter(
         cudnn_handle_, &alpha, rsc_->x_desc, x, rsc_->y_desc, dy,
         rsc_->conv_wgrad_desc.desc, rsc_->bwd_filter_algo, workspace,
-        rsc_->bwd_filter_workspace_size, &beta, rsc_->w_desc, dw));
+        workspace_size, &beta, rsc_->w_desc, dw));
   }
   if (inputs.size() == 3 && propagate_down[2]) {
     auto beta = get_cudnn_scalar_arg<T>(accum[2] ? 1 : 0);
@@ -224,7 +228,7 @@ void ConvolutionCudaCudnn<T>::backward_impl(const Variables &inputs,
       NBLA_CUDNN_CHECK(cudnnConvolutionBackwardData(
           cudnn_handle_, &alpha, rsc_->w_desc, w + w_offset_ * g, rsc_->y_desc,
           dy + y_offset_ * g, rsc_->conv_dgrad_desc.desc, rsc_->bwd_data_algo,
-          workspace, rsc_->bwd_data_workspace_size, &beta, rsc_->x_desc,
+          workspace, workspace_size_dgrad, &beta, rsc_->x_desc,
           dx + x_offset_ * g));
     }
     if (propagate_down[1]) {
@@ -232,8 +236,7 @@ void ConvolutionCudaCudnn<T>::backward_impl(const Variables &inputs,
       NBLA_CUDNN_CHECK(cudnnConvolutionBackwardFilter(
           cudnn_handle_, &alpha, rsc_->x_desc, x + x_offset_ * g, rsc_->y_desc,
           dy + y_offset_ * g, rsc_->conv_wgrad_desc.desc, rsc_->bwd_filter_algo,
-          workspace, rsc_->bwd_filter_workspace_size, &beta, rsc_->w_desc,
-          dw + w_offset_ * g));
+          workspace, workspace_size, &beta, rsc_->w_desc, dw + w_offset_ * g));
     }
     if (inputs.size() == 3 && propagate_down[2]) {
       auto beta = get_cudnn_scalar_arg<T>(accum[2] ? 1 : 0);

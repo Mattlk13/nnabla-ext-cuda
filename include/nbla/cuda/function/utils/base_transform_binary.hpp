@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,8 +33,8 @@ protected:
   int device_;
 
 public:
-  TransformBinaryCuda(const Context &ctx, Args... args)
-      : BaseTransformBinary<Args...>(ctx, args...),
+  TransformBinaryCuda(const Context &ctx, bool inplace, Args... args)
+      : BaseTransformBinary<Args...>(ctx, inplace, args...),
         device_(std::stoi(ctx.device_id)) {}
   virtual ~TransformBinaryCuda() {}
   virtual vector<dtypes> in_types() {
@@ -45,6 +46,9 @@ public:
   }
 };
 
+// ----------------------------------------------------------------------------
+// Common
+// ----------------------------------------------------------------------------
 #define NBLA_DECLARE_TRANSFORM_BINARY_CUDA_CLASS_COMMON(NAME)                  \
 public:                                                                        \
   virtual ~NAME##Cuda() {}                                                     \
@@ -64,11 +68,35 @@ protected:                                                                     \
 #define NBLA_DECLARE_TRANSFORM_BINARY_CUDA(NAME)                               \
   template <typename T> class NAME##Cuda : public TransformBinaryCuda<T> {     \
     NBLA_DECLARE_TRANSFORM_BINARY_CUDA_CLASS_COMMON(NAME)                      \
-    explicit NAME##Cuda(const Context &ctx) : TransformBinaryCuda<T>(ctx) {}   \
+    explicit NAME##Cuda(const Context &ctx)                                    \
+        : TransformBinaryCuda<T>(ctx, false) {}                                \
     virtual shared_ptr<Function> copy() const {                                \
       return create_##NAME(this->ctx_);                                        \
     }                                                                          \
     NBLA_DECLARE_TRANSFORM_BINARY_CUDA_FORWARD_BACKWARD();                     \
+                                                                               \
+  public:                                                                      \
+    virtual bool grad_depends_output_data(int i, int o) const;                 \
+                                                                               \
+  protected:                                                                   \
+    virtual bool grad_depends_input_data_impl(int i, int j) const;             \
+  }
+
+#define NBLA_DECLARE_TRANSFORM_BINARY_CUDA_INPLACE(NAME, IGNORE_INPLACE)       \
+  template <typename T> class NAME##Cuda : public TransformBinaryCuda<T> {     \
+    NBLA_DECLARE_TRANSFORM_BINARY_CUDA_CLASS_COMMON(NAME)                      \
+    explicit NAME##Cuda(const Context &ctx, bool inplace)                      \
+        : TransformBinaryCuda<T>(ctx, (IGNORE_INPLACE) ? false : inplace) {}   \
+    virtual shared_ptr<Function> copy() const {                                \
+      return create_##NAME(this->ctx_, this->inplace_);                        \
+    }                                                                          \
+    NBLA_DECLARE_TRANSFORM_BINARY_CUDA_FORWARD_BACKWARD();                     \
+                                                                               \
+  public:                                                                      \
+    virtual bool grad_depends_output_data(int i, int o) const;                 \
+                                                                               \
+  protected:                                                                   \
+    virtual bool grad_depends_input_data_impl(int i, int j) const;             \
   }
 
 // ----------------------------------------------------------------------------
@@ -82,11 +110,17 @@ protected:                                                                     \
   NBLA_DECLARE_TRANSFORM_BINARY_CUDA_CLASS_BEGIN_N(NAME, A0) {                 \
     NBLA_DECLARE_TRANSFORM_BINARY_CUDA_CLASS_COMMON(NAME)                      \
     explicit NAME##Cuda(const Context &ctx, const A0 &a0)                      \
-        : TransformBinaryCuda<T, A0>(ctx, a0) {}                               \
+        : TransformBinaryCuda<T, A0>(ctx, false, a0) {}                        \
     virtual shared_ptr<Function> copy() const {                                \
       return create_##NAME(this->ctx_, std::get<0>(this->args_));              \
     }                                                                          \
     NBLA_DECLARE_TRANSFORM_BINARY_CUDA_FORWARD_BACKWARD();                     \
+                                                                               \
+  public:                                                                      \
+    virtual bool grad_depends_output_data(int i, int o) const;                 \
+                                                                               \
+  protected:                                                                   \
+    virtual bool grad_depends_input_data_impl(int i, int j) const;             \
   }
 }
 #endif

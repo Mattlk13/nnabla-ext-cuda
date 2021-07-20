@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -40,7 +41,9 @@ NVIDIA_DOCKER_WRAPPER=$(NNABLA_EXT_CUDA_DIRECTORY)/build-tools/scripts/nvidia-do
 
 CUDA_SUFFIX = $(CUDA_VERSION_MAJOR)$(CUDA_VERSION_MINOR)-cudnn$(CUDNN_VERSION)
 
-DOCKER_IMAGE_ID_BUILD_NNABLA_EXT_CUDA = $(shell md5sum $(NNABLA_EXT_CUDA_DIRECTORY)/docker/development/Dockerfile.build$(ARCH_SUFFIX) |cut -d \  -f 1)
+DOCKERFILE_OMPI_SUFFIX_NNABLA_EXT_CUDA=$(shell [ -n "$(OMPI_SUFFIX)" ] && echo -mpi)
+DOCKERFILE_PATH_NNABLA_EXT_CUDA=$(NNABLA_EXT_CUDA_DIRECTORY)/docker/development/Dockerfile.build$(DOCKERFILE_OMPI_SUFFIX_NNABLA_EXT_CUDA)$(ARCH_SUFFIX)
+DOCKER_IMAGE_ID_BUILD_NNABLA_EXT_CUDA = $(shell md5sum $(DOCKERFILE_PATH_NNABLA_EXT_CUDA) |cut -d \  -f 1)
 DOCKER_IMAGE_BUILD_NNABLA_EXT_CUDA ?= $(DOCKER_IMAGE_NAME_BASE)-build-cuda$(CUDA_SUFFIX)$(OMPI_SUFFIX)$(ARCH_SUFFIX):$(DOCKER_IMAGE_ID_BUILD_NNABLA_EXT_CUDA)
 DOCKER_IMAGE_NNABLA_EXT_CUDA ?= $(DOCKER_IMAGE_NAME_BASE)-nnabla-ext-cuda$(CUDA_SUFFIX)$(OMPI_SUFFIX)$(ARCH_SUFFIX)
 
@@ -51,11 +54,15 @@ DOCKER_IMAGE_NNABLA_EXT_CUDA ?= $(DOCKER_IMAGE_NAME_BASE)-nnabla-ext-cuda$(CUDA_
 docker_image_build_cuda:
 	docker pull nvidia/cuda$(ARCH_SUFFIX):$(CUDA_VERSION_MAJOR).$(CUDA_VERSION_MINOR)-cudnn$(CUDNN_VERSION)-devel-centos7
 	if ! docker image inspect $(DOCKER_IMAGE_BUILD_NNABLA_EXT_CUDA) >/dev/null 2>/dev/null; then \
+		echo "Building: $(DOCKERFILE_PATH_NNABLA_EXT_CUDA)"; \
 		if [ "$(OMPI_SUFFIX)" = "" ]; then \
 			(cd $(NNABLA_EXT_CUDA_DIRECTORY) && docker build $(DOCKER_BUILD_ARGS) \
 				--build-arg CUDA_VERSION_MAJOR=$(CUDA_VERSION_MAJOR) \
 				--build-arg CUDA_VERSION_MINOR=$(CUDA_VERSION_MINOR) \
+				--build-arg CUDNN_VERSION=$(CUDNN_VERSION) \
 				--build-arg ARCH_SUFFIX=$(ARCH_SUFFIX) \
+				--build-arg PYTHON_VERSION_MAJOR=$(PYTHON_VERSION_MAJOR) \
+				--build-arg PYTHON_VERSION_MINOR=$(PYTHON_VERSION_MINOR) \
 				-t $(DOCKER_IMAGE_BUILD_NNABLA_EXT_CUDA) \
 				-f docker/development/Dockerfile.build$(ARCH_SUFFIX) \
 				.); \
@@ -63,8 +70,11 @@ docker_image_build_cuda:
 			(cd $(NNABLA_EXT_CUDA_DIRECTORY) && docker build $(DOCKER_BUILD_ARGS)\
 				--build-arg CUDA_VERSION_MAJOR=$(CUDA_VERSION_MAJOR) \
 				--build-arg CUDA_VERSION_MINOR=$(CUDA_VERSION_MINOR) \
+				--build-arg CUDNN_VERSION=$(CUDNN_VERSION) \
 				--build-arg ARCH_SUFFIX=$(ARCH_SUFFIX) \
 		                --build-arg MPIVER=$(OMPI_VERSION) \
+				--build-arg PYTHON_VERSION_MAJOR=$(PYTHON_VERSION_MAJOR) \
+				--build-arg PYTHON_VERSION_MINOR=$(PYTHON_VERSION_MINOR) \
 				-t $(DOCKER_IMAGE_BUILD_NNABLA_EXT_CUDA) \
 				-f docker/development/Dockerfile.build-mpi$(ARCH_SUFFIX) \
 				.); \
@@ -78,6 +88,16 @@ docker_image_build_cuda:
 bwd-nnabla-ext-cuda-auto-format: docker_image_auto_format
 	cd $(NNABLA_EXT_CUDA_DIRECTORY) \
 	&& docker run $(DOCKER_RUN_OPTS) $(DOCKER_IMAGE_AUTO_FORMAT) make -f build-tools/make/build.mk nnabla-ext-cuda-auto-format
+
+
+##############################################################################
+# Check copyright
+
+.PHONY: bwd-nnabla-ext-cuda-check-copyright
+bwd-nnabla-ext-cuda-check-copyright: docker_image_auto_format
+	cd $(NNABLA_EXT_CUDA_DIRECTORY) \
+	&& docker run $(DOCKER_RUN_OPTS) -v $$(pwd)/..:$$(pwd)/.. $(DOCKER_IMAGE_AUTO_FORMAT) make -f build-tools/make/build.mk nnabla-ext-cuda-check-copyright
+
 
 ########################################################################################################################
 # Build and test
@@ -115,6 +135,11 @@ bwd-nnabla-ext-cuda-shell: docker_image_build_cuda
 
 ########################################################################################################################
 # Docker image with current nnabla
+OMPI_BUILD_FLAGS_V1=""
+OMPI_BUILD_FLAGS_V2="--enable-orterun-prefix-by-default --with-sge --enable-mpi-thread-multiple "
+OMPI_BUILD_FLAGS_V3="--enable-orterun-prefix-by-default --with-sge "
+OMPI_BUILD_FLAGS_V4="--enable-orterun-prefix-by-default --with-sge "
+
 .PHONY: docker_image_nnabla_ext_cuda
 docker_image_nnabla_ext_cuda:
 	BASE=nvidia/cuda$(ARCH_SUFFIX):$(CUDA_VERSION_MAJOR).$(CUDA_VERSION_MINOR)-cudnn$(CUDNN_VERSION)-runtime-ubuntu18.04 \
@@ -125,14 +150,14 @@ docker_image_nnabla_ext_cuda:
 	   else \
 		cp docker/runtime/Dockerfile.runtime-mpi$(ARCH_SUFFIX) Dockerfile; \
 	   fi \
-	&& cp $(BUILD_DIRECTORY_WHEEL)/dist/*.whl . \
-	&& echo ADD $(shell basename $(BUILD_DIRECTORY_WHEEL)/dist/*.whl) /tmp/ >>Dockerfile \
-	&& echo RUN pip install /tmp/$(shell basename $(BUILD_DIRECTORY_WHEEL)/dist/*.whl) >>Dockerfile \
-	&& cp $(BUILD_EXT_CUDA_DIRECTORY_WHEEL)/dist/*.whl . \
-	&& echo ADD $(shell basename $(BUILD_EXT_CUDA_DIRECTORY_WHEEL)/dist/*.whl) /tmp/ >>Dockerfile \
-	&& echo RUN pip install /tmp/$(shell basename $(BUILD_EXT_CUDA_DIRECTORY_WHEEL)/dist/*.whl) >>Dockerfile \
-	&& docker build --build-arg BASE=$${BASE} $(DOCKER_BUILD_ARGS) \
+	&& cp $(BUILD_DIRECTORY_WHEEL)/dist/*.whl $(BUILD_EXT_CUDA_DIRECTORY_WHEEL)/dist/ \
+	&& docker build $(DOCKER_BUILD_ARGS) \
+		--build-arg BASE=$${BASE} \
 		--build-arg MPIVER=$(OMPI_VERSION) \
+		--build-arg OMPI_BUILD_FLAGS=${OMPI_BUILD_FLAGS_V$(firstword $(subst ., ,$(OMPI_VERSION)))} \
+		--build-arg CUDA_VERSION_MAJOR=$(CUDA_VERSION_MAJOR) \
+		--build-arg CUDA_VERSION_MINOR=$(CUDA_VERSION_MINOR) \
+		--build-arg WHL_PATH=$$(echo build_wheel$(BUILD_EXT_CUDA_DIRECTORY_WHEEL_SUFFIX)$(OMPI_SUFFIX)/dist) \
 		-t $(DOCKER_IMAGE_NNABLA_EXT_CUDA) . \
-	&& rm -f $(shell basename $(BUILD_DIRECTORY_WHEEL)/dist/*.whl) \
+	&& ls $(BUILD_EXT_CUDA_DIRECTORY_WHEEL)/dist/* | grep -v nnabla_ext_cuda | xargs rm -f \
 	&& rm -f Dockerfile

@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +17,9 @@
 #define __NBLA_CUDA_UTILS_RANDOM_HPP__
 
 #include <curand_kernel.h>
+#include <nbla/array.hpp>
 #include <nbla/cuda/common.hpp>
+#include <nbla/variable.hpp>
 
 namespace nbla {
 
@@ -70,6 +73,23 @@ void curand_generate_randn(curandGenerator_t gen, T mu, T sigma, T *dev_ptr,
 
 void curand_initialize(const int size, const int seed, const int offset,
                        curandState *state);
+
+// Support functions for recomputation
+template <typename T>
+void save_output_data(const Context &ctx, Variable *output, NdArray &buffer) {
+  const Array *y = output->data()->get(get_dtype<T>(), ctx);
+  Array *buffer_array = buffer.cast(get_dtype<T>(), ctx, true);
+  buffer_array->copy_from(y);
+}
+
+template <typename T>
+void restore_output_data(const Context &ctx, NdArray &buffer,
+                         Variable *output) {
+  const Array *buffer_array = buffer.get(get_dtype<T>(), ctx);
+  Array *y = output->data()->cast(get_dtype<T>(), ctx, true);
+  y->copy_from(buffer_array);
+  buffer.array()->clear();
+}
 }
 
 #endif

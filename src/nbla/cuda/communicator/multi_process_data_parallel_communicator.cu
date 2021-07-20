@@ -289,7 +289,7 @@ MultiProcessDataParallelCommunicatorNccl<T>::get_modified_arrays(
 template <typename T>
 MultiProcessDataParallelCommunicatorNccl<
     T>::MultiProcessDataParallelCommunicatorNccl(const Context &ctx)
-    : MultiProcessDataParallelCommunicator<T>(ctx) {}
+    : MultiProcessDataParallelCommunicator<T>(ctx), watch_dog_() {}
 
 template <typename T>
 MultiProcessDataParallelCommunicatorNccl<
@@ -308,6 +308,8 @@ MultiProcessDataParallelCommunicatorNccl<
 }
 
 template <typename T> void MultiProcessDataParallelCommunicatorNccl<T>::init() {
+  Watchdog::WatchdogLock lck(
+      watch_dog_); // check if this function is finished within 10s.
   Communicator::init();
   Mpi::get(); // Make sure MPI singleton is initialized.
   this->mpi_comms_["world"] = make_shared<MpiCommWrapper>();
@@ -601,9 +603,9 @@ void MultiProcessDataParallelCommunicatorNccl<T>::allreduce(bool division,
     }
   } else { // out-of-place. use a large array.
     Context ctx = this->contexts_[0];
-    shared_ptr<CudaCachedArray> arr_buff = // TODO: address 16 bits also here?
-        make_shared<CudaCachedArray>(this->total_params_, get_dtype<Tc>(), ctx);
-    Tc *buff = arr_buff->pointer<Tc>();
+    // TODO: address 16 bits also here?
+    NdArray arr_buff(Shape_t{this->total_params_});
+    Tc *buff = arr_buff.cast(get_dtype<Tc>(), ctx, true)->pointer<Tc>();
     Tc *buff_start = buff;
     auto func_named_param = this->device_func_named_param_[0];
     Size_t type_size = sizeof(Tc);
@@ -656,6 +658,13 @@ template <typename T>
 void MultiProcessDataParallelCommunicatorNccl<T>::all_reduce(
     const vector<NdArrayPtr> &ndarray_list, bool division, bool inplace,
     const string &group) {
+  // If it is rank0, we check all other nodes with strict constraint, for
+  // example,
+  // must be finished within 50s. Otherwise, we loose this constraint to allow
+  // rank0 to do a relative long time operation.
+  int timeout = this->rank_ == 0 ? all_reduce_timeout_
+                                 : all_reduce_timeout_ * TIMES_FOR_OTHER_NODE;
+  Watchdog::WatchdogLock lck(watch_dog_, timeout);
   if (!this->find_self(group)) {
     NBLA_ERROR(error_code::value, "self (rank=%d) is not included in %s.",
                this->rank_, group.c_str());
@@ -699,6 +708,7 @@ void MultiProcessDataParallelCommunicatorNccl<T>::all_reduce(
 template <typename T>
 void MultiProcessDataParallelCommunicatorNccl<T>::all_reduce(
     NdArrayPtr ndarray, bool division, bool inplace, const string &group) {
+  Watchdog::WatchdogLock lck(watch_dog_, all_reduce_timeout_);
   if (!this->find_self(group)) {
     NBLA_ERROR(error_code::value, "self (rank=%d) is not included in %s.",
                this->rank_, group.c_str());
@@ -920,6 +930,14 @@ MultiProcessDataParallelCommunicatorNccl<T>::all_reduce_callback(
                                         ndarray_list.end());
   return make_shared<AllReduceCallback>(*this, group, pack_size, division,
                                         gpu_memory, device_ptrs);
+}
+
+template <typename T>
+CommunicatorBackwardCallbackPtr
+MultiProcessDataParallelCommunicatorNccl<T>::all_reduce_callback(
+    NdArrayPtr ndarray, size_t pack_size, bool division, const string &group) {
+  /* Not implemented here, only for removing warning... */
+  return nullptr;
 }
 
 template <typename T>

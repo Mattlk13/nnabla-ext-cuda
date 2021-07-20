@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,6 +23,7 @@ namespace nbla {
 
 /** @copydoc PowScalar
 */
-NBLA_DECLARE_TRANSFORM_UNARY_CUDA_1(PowScalar, double);
+// In-placing is obsoleted.
+NBLA_DECLARE_TRANSFORM_UNARY_CUDA_1_INPLACE(PowScalar, double, true);
 }
 #endif

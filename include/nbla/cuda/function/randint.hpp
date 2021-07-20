@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,8 +38,6 @@ public:
     cuda_set_device(device_);
     if (this->seed_ != -1) {
       curand_generator_ = curand_create_generator(this->seed_);
-    } else {
-      curand_generator_ = SingletonManager::get<Cuda>()->curand_generator();
     }
   }
   virtual ~RandintCuda() {
@@ -54,11 +53,17 @@ public:
 protected:
   int device_;
   curandGenerator_t curand_generator_;
+  bool save_output_data_ = false;
+  NdArray output_data_for_recomp_;
   virtual void setup_impl(const Variables &inputs, const Variables &outputs);
   virtual void forward_impl(const Variables &inputs, const Variables &outputs);
   virtual void backward_impl(const Variables &inputs, const Variables &outputs,
                              const vector<bool> &propagate_down,
                              const vector<bool> &accum);
+  virtual void setup_recompute_impl(const Variables &inputs,
+                                    const Variables &outputs);
+  virtual void recompute_impl(const Variables &inputs,
+                              const Variables &outputs);
 };
 }
 

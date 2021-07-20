@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,7 +26,11 @@
     defined(nnabla_cuda_101_7_EXPORTS) ||                                      \
     defined(nnabla_cuda_101_7_dbg_EXPORTS) ||                                  \
     defined(nnabla_cuda_102_7_EXPORTS) ||                                      \
-    defined(nnabla_cuda_102_7_dbg_EXPORTS)
+    defined(nnabla_cuda_102_7_dbg_EXPORTS) ||                                  \
+    defined(nnabla_cuda_102_8_EXPORTS) ||                                      \
+    defined(nnabla_cuda_102_8_dbg_EXPORTS) ||                                  \
+    defined(nnabla_cuda_110_8_EXPORTS) ||                                      \
+    defined(nnabla_cuda_110_8_dbg_EXPORTS)
 #define NBLA_CUDA_API __declspec(dllexport)
 #else
 #define NBLA_CUDA_API __declspec(dllimport)

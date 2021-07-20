@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -53,7 +54,8 @@ public:
       : SyncBatchNormalizationCuda<T>(ctx, comm, group, axes, decay_rate, eps,
                                       batch_stat),
         device_(std::stoi(ctx.device_id)),
-        batch_norm_cudnn_(ctx, axes, decay_rate, eps, batch_stat) {
+        batch_norm_cudnn_(ctx, axes, decay_rate, eps, batch_stat,
+                          false /* no_scale */, false /* no_bias */) {
 #if CUDNN_VERSION < 5000
     std::cout << "Falling back to BatchNormalizationCuda since BN does not "
                  "exist in CUDNN_VERSION < 5000."
@@ -86,7 +88,8 @@ public:
 protected:
   virtual void setup_impl(const Variables &inputs, const Variables &outputs);
   virtual void forward_impl_batch(const Variables &inputs,
-                                  const Variables &outputs) override;
+                                  const Variables &outputs,
+                                  const bool update_inputs) override;
   virtual void forward_impl_global(const Variables &inputs,
                                    const Variables &outputs) override;
 };

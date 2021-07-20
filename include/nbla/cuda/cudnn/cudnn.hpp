@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,14 +31,14 @@
 
 #include <algorithm>
 #include <iostream>
-#include <map>
 #include <memory>
 #include <numeric>
+#include <set>
+#include <thread>
 #include <unordered_map>
 
 namespace nbla {
 
-using std::map;
 using std::shared_ptr;
 using std::unordered_map;
 using std::hash;
@@ -321,29 +322,53 @@ struct NBLA_CUDA_API CudnnConvResource {
   cudnnConvolutionBwdFilterAlgo_t
       bwd_filter_algo; ///< Best Backward filter algorithm found.
   cudnnConvolutionBwdDataAlgo_t
-      bwd_data_algo;                ///< Best backward data algorithm found.
-  size_t fwd_workspace_size;        ///< Forward workspace size.
-  size_t bwd_filter_workspace_size; ///< Backward filter workspace size.
-  size_t bwd_data_workspace_size;   ///< Backward data workspace size.
+      bwd_data_algo; ///< Best backward data algorithm found.
 
   CudnnConvResource(const CudnnConvDesc &desc);
   ~CudnnConvResource();
 
   /** Get maximum workspace size.
    */
-  size_t workspace_size() const;
+  size_t max_workspace_size() const;
+
+  /** Get forward workspace size.
+   */
+  size_t fwd_workspace_size() const;
+
+  /** Get backward-filter workspace size.
+   */
+  size_t bwd_filter_workspace_size() const;
+
+  /** Get backward-data workspace size.
+   */
+  size_t bwd_data_workspace_size() const;
 
 private:
-  void find_forward_algorithm(int workspace_limit, bool deterministic,
+  size_t fwd_workspace_size_;        ///< Forward workspace size.
+  size_t bwd_filter_workspace_size_; ///< Backward filter workspace size.
+  size_t bwd_data_workspace_size_;   ///< Backward data workspace size.
+
+  void find_forward_algorithm(Size_t workspace_limit, bool deterministic,
                               bool heuristic);
-  void find_backward_data_algorithm(int workspace_limit, bool deterministic,
+  void find_backward_data_algorithm(Size_t workspace_limit, bool deterministic,
                                     bool heuristic);
-  void find_backward_filter_algorithm(int workspace_limit, bool deterministic,
-                                      bool heuristic);
-  void get_forward_algorithm(int workspace_limit);
-  void get_backward_data_algorithm(int workspace_limit);
-  void get_backward_filter_algorithm(int workspace_limit);
+  void find_backward_filter_algorithm(Size_t workspace_limit,
+                                      bool deterministic, bool heuristic);
+#if CUDNN_VERSION < 3000
+  void get_forward_algorithm(Size_t workspace_limit);
+  void get_backward_data_algorithm(Size_t workspace_limit);
+  void get_backward_filter_algorithm(Size_t workspace_limit);
+#endif
   void find_best_algorithms();
+};
+
+/**
+Enum for Convolution operation type.
+*/
+enum ConvOpType {
+  FWD = 0,
+  BWD_DATA = 1,
+  BWD_FILTER = 2,
 };
 
 /**
@@ -371,7 +396,7 @@ public:
       @note The default value is -1. The default value is overwritten if an
             environment variable NNABLA_CUDNN_WORKSPACE_LIMIT is specified.
    */
-  int get_workspace_limit_in_bytes();
+  Size_t get_workspace_limit_in_bytes();
 
   /** Set a workspace limit.
 
@@ -379,7 +404,7 @@ public:
 
       @param[in] Limit in bytes.
    */
-  void set_workspace_limit_in_bytes(int bytes);
+  void set_workspace_limit_in_bytes(Size_t bytes);
 
   /* Get option for choosing deterministic algorithms.
 
@@ -402,7 +427,7 @@ public:
 
    True requests to get the alogorithm by a heuristic.
 
-   @note The default value is false. The default value is overwritten if an
+   @note The default value is true. The default value is overwritten if an
          environment variable NNABLA_CUDNN_ALGORITHM_BY_HEURISTIC is specified.
  */
   bool get_heuristic_option();
@@ -415,12 +440,46 @@ public:
    */
   void set_heuristic_option(bool value);
 
+  /* Set an id on conv_fwd_algo_blacklist_.
+   * All algorithms registered this blacklist will be ignored in
+   * CudnnConvResource::find_forward_algorithm.
+   * Passed id must be in the range of [0,
+   * cudnnConvolutionFwdAlgo_t::CUDNN_CONVOLUTION_FWD_ALGO_COUNT).
+   * If the passed id exceeds this range, this function will raise ValueError.
+   *
+   * @param[in] Algorithm index.
+   * @param[in] Operation index.
+   */
+  void set_conv_algo_blacklist(int id, ConvOpType op);
+
+  /* Unset an id from conv_fwd_algo_blacklist_.
+   *
+   * @param[in] Algorithm index.
+   * @param[in] Operation index.
+   */
+  void unset_conv_algo_blacklist(int id, ConvOpType op);
+
+  /* Check whether a passed id of algorithm is registered on
+   * conv_fwd_algo_blacklist_ or not
+   *
+   * @param[in] Algorithm index.
+   * @param[in] Operation index.
+   */
+  bool check_conv_algo_blacklist(int id, ConvOpType op);
+
 protected:
-  unordered_map<int, unordered_map<cudaStream_t, shared_ptr<cudnnHandle_t>>>
-      handles_;
-  int workspace_limit_{0};           ///< Workspace limit in bytes.
+  std::mutex mtx_cudnn_handle_;
+  typedef unordered_map<std::thread::id,
+                        unordered_map<cudaStream_t, shared_ptr<cudnnHandle_t>>>
+      tid_cudnn_handle_t;
+  unordered_map<int, tid_cudnn_handle_t> handles_;
+  Size_t workspace_limit_{0};        ///< Workspace limit in bytes.
   bool deterministic_option_{false}; ///< Choose deterministic algorithms
   bool heuristic_option_{false};     ///< Choose algorithm by a heuristic.
+
+  unordered_map<size_t, std::set<int>> conv_algo_blacklists_;
+
+  void verify_conv_algo_id(int id, ConvOpType op);
 
 private:
   friend SingletonManager;

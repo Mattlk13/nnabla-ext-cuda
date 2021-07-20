@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,6 +28,12 @@ int cuda_get_device() {
   int current_device;
   NBLA_CUDA_CHECK(cudaGetDevice(&current_device));
   return current_device;
+}
+
+std::vector<size_t> cuda_mem_get_info() {
+  size_t mf, mt;
+  cudaMemGetInfo(&mf, &mt);
+  return std::vector<size_t>{mf, mt};
 }
 
 cudaDeviceProp cuda_get_current_device_properties() {

@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,16 +19,16 @@
 
 #include <nbla/cuda/cuda.hpp>
 #include <nbla/function/slice.hpp>
+#include <nbla/utils/nd_index.hpp>
+
 namespace nbla {
 /** @copydoc Slice
 */
 
 template <typename T> class SliceCuda : public Slice<T> {
 protected:
-  Variable addr_table_;
-
 public:
-  typedef typename CudaType<T>::type Tc;
+  typedef typename CudaType<T>::type Tcu;
 
   explicit SliceCuda(const Context &ctx, const vector<int> &start,
                      const vector<int> &stop, const vector<int> &step)

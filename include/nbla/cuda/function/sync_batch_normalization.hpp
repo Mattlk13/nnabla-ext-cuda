@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -63,7 +64,8 @@ public:
       : SyncBatchNormalization<T>(ctx, comm, group, axes, decay_rate, eps,
                                   batch_stat),
         device_(std::stoi(ctx.device_id)),
-        batch_norm_(ctx, axes, decay_rate, eps, batch_stat) {}
+        batch_norm_(ctx, axes, decay_rate, eps, batch_stat,
+                    false /* no_scale */, false /* no_scale */) {}
   virtual ~SyncBatchNormalizationCuda() {}
   virtual string name() override { return "SyncBatchNormalizationCuda"; }
   virtual vector<string> allowed_array_classes() override {
@@ -73,7 +75,8 @@ public:
 protected:
   virtual void setup_impl(const Variables &inputs, const Variables &outputs);
   virtual void forward_impl_batch(const Variables &inputs,
-                                  const Variables &outputs) override;
+                                  const Variables &outputs,
+                                  const bool update_inputs) override;
   virtual void forward_impl_global(const Variables &inputs,
                                    const Variables &outputs) override;
   virtual void backward_impl_batch(const Variables &inputs,

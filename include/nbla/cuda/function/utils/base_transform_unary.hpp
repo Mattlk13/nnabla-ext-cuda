@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,8 +33,8 @@ protected:
   int device_;
 
 public:
-  TransformUnaryCuda(const Context &ctx, Args... args)
-      : BaseTransformUnary<Args...>(ctx, args...),
+  TransformUnaryCuda(const Context &ctx, bool inplace, Args... args)
+      : BaseTransformUnary<Args...>(ctx, inplace, args...),
         device_(std::stoi(ctx.device_id)) {}
   virtual ~TransformUnaryCuda() {}
   virtual vector<dtypes> in_types() {
@@ -67,7 +68,8 @@ protected:                                                                     \
 #define NBLA_DECLARE_TRANSFORM_UNARY_CUDA(NAME)                                \
   NBLA_DECLARE_TRANSFORM_UNARY_CUDA_CLASS_BEGIN(NAME) {                        \
     NBLA_DECLARE_TRANSFORM_UNARY_CUDA_CLASS_COMMON(NAME);                      \
-    explicit NAME##Cuda(const Context &ctx) : TransformUnaryCuda<T>(ctx) {}    \
+    explicit NAME##Cuda(const Context &ctx)                                    \
+        : TransformUnaryCuda<T>(ctx, false) {}                                 \
     virtual shared_ptr<Function> copy() const {                                \
       return create_##NAME(this->ctx_);                                        \
     }                                                                          \
@@ -75,6 +77,9 @@ protected:                                                                     \
                                                                                \
   public:                                                                      \
     virtual bool grad_depends_output_data(int i, int o) const;                 \
+                                                                               \
+  protected:                                                                   \
+    virtual bool grad_depends_input_data_impl(int i, int j) const;             \
   }
 
 // ----------------------------------------------------------------------------
@@ -88,7 +93,7 @@ protected:                                                                     \
   NBLA_DECLARE_TRANSFORM_UNARY_CUDA_CLASS_BEGIN_N(NAME, A0) {                  \
     NBLA_DECLARE_TRANSFORM_UNARY_CUDA_CLASS_COMMON(NAME);                      \
     explicit NAME##Cuda(const Context &ctx, const A0 &a0)                      \
-        : TransformUnaryCuda<T, A0>(ctx, a0) {}                                \
+        : TransformUnaryCuda<T, A0>(ctx, false, a0) {}                         \
     virtual shared_ptr<Function> copy() const {                                \
       return create_##NAME(this->ctx_, std::get<0>(this->args_));              \
     }                                                                          \
@@ -96,6 +101,28 @@ protected:                                                                     \
                                                                                \
   public:                                                                      \
     virtual bool grad_depends_output_data(int i, int o) const;                 \
+                                                                               \
+  protected:                                                                   \
+    virtual bool grad_depends_input_data_impl(int i, int j) const;             \
+  }
+
+#define NBLA_DECLARE_TRANSFORM_UNARY_CUDA_1_INPLACE(NAME, A0, IGNORE_INPLACE)  \
+  NBLA_DECLARE_TRANSFORM_UNARY_CUDA_CLASS_BEGIN_N(NAME, A0) {                  \
+    NBLA_DECLARE_TRANSFORM_UNARY_CUDA_CLASS_COMMON(NAME);                      \
+    explicit NAME##Cuda(const Context &ctx, const A0 &a0, bool inplace)        \
+        : TransformUnaryCuda<T, A0>(ctx, (IGNORE_INPLACE) ? false : inplace,   \
+                                    a0) {}                                     \
+    virtual shared_ptr<Function> copy() const {                                \
+      return create_##NAME(this->ctx_, std::get<0>(this->args_),               \
+                           this->inplace_);                                    \
+    }                                                                          \
+    NBLA_DECLARE_TRANSFORM_UNARY_CUDA_FORWARD_BACKWARD();                      \
+                                                                               \
+  public:                                                                      \
+    virtual bool grad_depends_output_data(int i, int o) const;                 \
+                                                                               \
+  protected:                                                                   \
+    virtual bool grad_depends_input_data_impl(int i, int j) const;             \
   }
 }
 #endif

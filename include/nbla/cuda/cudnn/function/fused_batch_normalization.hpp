@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -89,10 +90,15 @@ public:
 protected:
 #if CUDNN_VERSION > 7400
   virtual void setup_impl(const Variables &inputs, const Variables &outputs);
+  virtual void fused_batch_norm_forward(const Variables &inputs,
+                                        const Variables &outputs,
+                                        const bool update_inputs);
   virtual void forward_impl(const Variables &inputs, const Variables &outputs);
   virtual void backward_impl(const Variables &inputs, const Variables &outputs,
                              const vector<bool> &propagate_down,
                              const vector<bool> &accum);
+  virtual void recompute_impl(const Variables &inputs,
+                              const Variables &outputs);
 #endif
 };
 } // namespace nbla

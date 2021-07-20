@@ -69,6 +69,27 @@ __global__ void backward(const int x_size, T *x_grad, const int y_size,
     }
   }
 }
+
+template <bool accum, typename T>
+__global__ void backward(const int x_size, T *x_grad, const int y_size,
+                         T *y_grad, const int *y_shape, const int *y_stride,
+                         const int *idx_data, const int idx_rows,
+                         const int idx_cols) {
+  NBLA_CUDA_KERNEL_LOOP(tid, x_size) {
+    auto slice_length = x_size / idx_cols;
+    auto index_column = tid / slice_length;
+    auto y_offset = tid - index_column * slice_length;
+
+    for (int m = 0; m < idx_rows; m++) {
+      auto index = idx_data[m * idx_cols + index_column];
+      y_offset += (index < 0 ? y_shape[m] + index : index) * y_stride[m];
+    }
+    if (y_offset < y_size) {
+      x_grad[tid] = accum ? x_grad[tid] + y_grad[y_offset] : y_grad[y_offset];
+      y_grad[y_offset] = T(0);
+    }
+  }
+}
 }
 
 template <typename T>
@@ -91,6 +112,9 @@ template <typename T>
 void ScatterNdCuda<T>::forward_impl(const Variables &inputs,
                                     const Variables &outputs) {
   cuda_set_device(this->device_);
+
+  if (inputs.size() < 3)
+    outputs[0]->data()->zero();
 
   auto src = inputs[0]->get_data_pointer<Tcu>(this->ctx_);
   auto idx = inputs[1]->get_data_pointer<int>(this->ctx_);
@@ -128,16 +152,39 @@ void ScatterNdCuda<T>::backward_impl(const Variables &inputs,
   auto y_shape_ptr = dst_meta_.get_data_pointer<int>(this->ctx_);
   auto y_stride_ptr = y_shape_ptr + outputs[0]->ndim();
 
-  if (accum[0]) {
-    NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(scatter_nd_cuda::backward<true>,
-                                   inputs[0]->size(), g_x, outputs[0]->size(),
-                                   g_y, y_shape_ptr, y_stride_ptr, idx,
-                                   idx_rows, idx_cols);
+  if (inputs.size() < 3) {
+    // Because input[0] data is scattered into a new output variable during
+    // forward, output[0] gradient values from scatter indices are propagated
+    // back to input[0] gradient.
+    auto g_y = outputs[0]->get_grad_pointer<Tcu>(this->ctx_);
+    if (accum[0]) {
+      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(scatter_nd_cuda::backward<true>,
+                                     inputs[0]->size(), g_x, outputs[0]->size(),
+                                     g_y, y_shape_ptr, y_stride_ptr, idx,
+                                     idx_rows, idx_cols);
+    } else {
+      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(scatter_nd_cuda::backward<false>,
+                                     inputs[0]->size(), g_x, outputs[0]->size(),
+                                     g_y, y_shape_ptr, y_stride_ptr, idx,
+                                     idx_rows, idx_cols);
+    }
   } else {
-    NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(scatter_nd_cuda::backward<false>,
-                                   inputs[0]->size(), g_x, outputs[0]->size(),
-                                   g_y, y_shape_ptr, y_stride_ptr, idx,
-                                   idx_rows, idx_cols);
+    // Because input[0] data is scattered into the data of input[2] (the input
+    // parameter named `out`) inplaced with output[0], the gradient values of
+    // output[0] that belong to the scatter indices are propagated back to the
+    // input[0] gradient and set to 0 (masked) in the grad array of output[0].
+    auto g_y = inputs[0]->cast_grad_and_get_pointer<Tcu>(this->ctx_, !accum[0]);
+    if (accum[0]) {
+      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(scatter_nd_cuda::backward<true>,
+                                     inputs[0]->size(), g_x, outputs[0]->size(),
+                                     g_y, y_shape_ptr, y_stride_ptr, idx,
+                                     idx_rows, idx_cols);
+    } else {
+      NBLA_CUDA_LAUNCH_KERNEL_SIMPLE(scatter_nd_cuda::backward<false>,
+                                     inputs[0]->size(), g_x, outputs[0]->size(),
+                                     g_y, y_shape_ptr, y_stride_ptr, idx,
+                                     idx_rows, idx_cols);
+    }
   }
 }
 }

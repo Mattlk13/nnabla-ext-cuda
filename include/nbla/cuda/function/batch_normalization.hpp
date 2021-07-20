@@ -1,4 +1,5 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
+// Copyright 2021 Sony Group Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -53,8 +54,10 @@ public:
   typedef typename CudaType<T>::type Tc;
 
   BatchNormalizationCuda(const Context &ctx, const vector<int> axes,
-                         float decay_rate, float eps, bool batch_stat)
-      : BatchNormalization<T>(ctx, axes, decay_rate, eps, batch_stat),
+                         float decay_rate, float eps, bool batch_stat,
+                         bool no_scale, bool no_bias)
+      : BatchNormalization<T>(ctx, axes, decay_rate, eps, batch_stat, no_scale,
+                              no_bias),
         device_(std::stoi(ctx.device_id)) {}
   virtual ~BatchNormalizationCuda() {}
   virtual string name() { return "BatchNormalizationCuda"; }
@@ -69,13 +72,16 @@ protected:
                              const vector<bool> &propagate_down,
                              const vector<bool> &accum);
   virtual void forward_impl_batch(const Variables &inputs,
-                                  const Variables &outputs);
+                                  const Variables &outputs,
+                                  const bool update_inputs);
   virtual void forward_impl_global(const Variables &inputs,
                                    const Variables &outputs);
   virtual void backward_impl_batch(const Variables &inputs,
                                    const Variables &outputs,
                                    const vector<bool> &propagate_down,
                                    const vector<bool> &accum);
+  virtual void recompute_impl(const Variables &inputs,
+                              const Variables &outputs);
 };
 }
 #endif

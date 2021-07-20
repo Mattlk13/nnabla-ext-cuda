@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,6 +21,20 @@ namespace nbla {
 Initialize CUDNN features.
 */
 NBLA_CUDA_API void init_cudnn();
+
+/**
+Set conv algo to blacklist.
+*/
+NBLA_CUDA_API void set_conv_fwd_algo_blacklist(int id);
+NBLA_CUDA_API void set_conv_bwd_data_algo_blacklist(int id);
+NBLA_CUDA_API void set_conv_bwd_filter_algo_blacklist(int id);
+
+/**
+Unset conv algo from blacklist.
+*/
+NBLA_CUDA_API void unset_conv_fwd_algo_blacklist(int id);
+NBLA_CUDA_API void unset_conv_bwd_data_algo_blacklist(int id);
+NBLA_CUDA_API void unset_conv_bwd_filter_algo_blacklist(int id);
 }
 
 #endif

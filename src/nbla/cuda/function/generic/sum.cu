@@ -15,20 +15,9 @@
 #include <nbla/cuda/array/cuda_array.hpp>
 #include <nbla/cuda/function/sum.hpp>
 #include <nbla/cuda/math.hpp>
-#include <nbla/cuda/utils/block_reduce.cuh>
+#include <nbla/cuda/utils/reduce.cuh>
 
 namespace nbla {
-
-template <typename T>
-__global__ void kernel_reduce_per_block(const int N, const T *x, T *buff) {
-  typedef typename CudaTypeForceFloat<T>::type AccT;
-  AccT thread_data = 0;
-  NBLA_CUDA_KERNEL_LOOP(i, N) { thread_data += (AccT)x[i]; }
-  thread_data = blockReduceSum(thread_data);
-  if (threadIdx.x == 0) {
-    buff[blockIdx.x] = thread_data;
-  }
-}
 
 template <typename T>
 void SumCuda<T>::forward_impl_reduce(const T *x_, T *y_, int outer_size,
@@ -46,9 +35,8 @@ void SumCuda<T>::forward_impl_reduce(const T *x_, T *y_, int outer_size,
   } else if (reduction_size >= 1024) {
     const int threads = NBLA_CUDA_NUM_THREADS;
     const int blocks = min(NBLA_CUDA_GET_BLOCKS(reduction_size), 1024);
-    shared_ptr<CudaCachedArray> arr_buff =
-        make_shared<CudaCachedArray>(blocks, get_dtype<Tc>(), this->ctx_);
-    Tc *buff = arr_buff->pointer<Tc>();
+    NdArray arr_buff({blocks});
+    Tc *buff = arr_buff.cast(get_dtype<Tc>(), this->ctx_, true)->pointer<Tc>();
     while (outer_size--) {
       kernel_reduce_per_block<<<blocks, threads>>>(reduction_size, x, buff);
       NBLA_CUDA_KERNEL_CHECK();

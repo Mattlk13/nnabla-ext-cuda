@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2017,2018,2019,2020,2021 Sony Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -91,7 +91,7 @@ include(${NNABLA_DIR}/build-tools/cmake/Utils.cmake)
 # Code generator
 ###############################################################################
 if (MSVC)
-  set(ENV{PYTHONPATH} ${NNABLA_DIR}\\build-tools\\code_generator;$ENV{PYTHONPATH})
+  set(ENV{PYTHONPATH} "${NNABLA_DIR}\\build-tools\\code_generator;${PYTHON_PKG_DIR};$ENV{PYTHONPATH}")
 else()
   set(ENV{PYTHONPATH} ${NNABLA_DIR}/build-tools/code_generator:$ENV{PYTHONPATH})
 endif()
@@ -187,7 +187,8 @@ if(BUILD_CPP_LIB)
   list(APPEND NBLA_INCLUDE_DIRS
     ${PROJECT_SOURCE_DIR}/include
     ${NNABLA_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/eigen-3.3.5)
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/eigen-3.3.5
+    ${NNABLA_DIR}/include/third_party/)
   include_directories(${NBLA_INCLUDE_DIRS};${PROJECT_BINARY_DIR})
   
   ###############################################################################
@@ -219,7 +220,7 @@ if(BUILD_CPP_LIB)
   
     file(GLOB NBLA_TEST_SOURCES src/nbla/cuda/test/test_*.cpp)
     add_executable(clibtest ${NBLA_TEST_SOURCES})
-    add_dependencies(clibtest ${NBLA_LIBRARY_NAME} ${NBLA_CUDA_LIBRARY_NAME})
+    add_dependencies(clibtest ${NBLA_CUDA_LIBRARY_NAME})
     target_link_libraries(clibtest gtest gtest_main)
   
     add_dependencies(clibtest ${NBLA_CUDA_LIBRARY_NAME})

@@ -1,4 +1,5 @@
-# Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+# Copyright 2018,2019,2020,2021 Sony Corporation.
+# Copyright 2021 Sony Group Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,6 +29,8 @@ ifndef NNABLA_BUILD_INCLUDED
   include $(NNABLA_DIRECTORY)/build-tools/make/build.mk
 endif
 
+CUDA_ROOT ?= /usr/local/cuda
+
 ########################################################################################################################
 # cleaning
 .PHONY: nnabla-ext-cuda-clean
@@ -46,6 +49,13 @@ nnabla-ext-cuda-auto-format:
 		'\./src/nbla/cuda(/cudnn)?/(function|solver)/\w+\.cu' \
 		'\./src/nbla/cuda(/cudnn)?/init.cpp' \
 		'\./python/src/nnabla_ext/(cuda|cudnn)/.*.(cpp|hpp|h|c)'
+
+##############################################################################
+# Check copyright
+.PHONY: nnabla-ext-cuda-check-copyright
+nnabla-ext-cuda-check-copyright:
+	python3 $(NNABLA_DIRECTORY)/build-tools/code_formatter/copyright_checker.py --rootdir=$(NNABLA_EXT_CUDA_DIRECTORY)
+
 
 ########################################################################################################################
 # cpplib
@@ -67,6 +77,7 @@ nnabla-ext-cuda-cpplib:
 		-DPYTHON_VERSION_MINOR=$(PYTHON_VERSION_MINOR) \
 		-DMULTIGPU_SUFFIX=$(MULTIGPU_SUFFIX) \
 		-DWITH_NCCL=$(WITH_NCCL) \
+		-DCMAKE_LIBRARY_PATH=$(CUDA_ROOT)/lib64/stubs \
 		$(CMAKE_OPTS) \
 		$(NNABLA_EXT_CUDA_DIRECTORY)
 	$(MAKE) -C $(BUILD_EXT_CUDA_DIRECTORY_CPPLIB) -j$(PARALLEL_BUILD_NUM)
@@ -103,13 +114,14 @@ nnabla-ext-cuda-wheel-local: nnabla-install \
 		-DMULTIGPU_SUFFIX=$(MULTIGPU_SUFFIX) \
 		-DWITH_NCCL=$(WITH_NCCL) \
                 -DWHEEL_SUFFIX=$(WHEEL_SUFFIX) \
+		-DCMAKE_LIBRARY_PATH=$(CUDA_ROOT)/lib64/stubs \
 		$(CMAKE_OPTS) \
 		$(NNABLA_EXT_CUDA_DIRECTORY) \
 	&& $(MAKE) -C $(BUILD_EXT_CUDA_DIRECTORY_WHEEL) wheel
 
 .PHONY: nnabla-ext-cuda-install
 nnabla-ext-cuda-install:
-	pip install --force-reinstall --no-deps $(BUILD_EXT_CUDA_DIRECTORY_WHEEL)/dist/*-$(INSTALL_WHEEL_ARCH)*.whl
+	pip install ${PIP_INS_OPTS} --force-reinstall --no-deps $(BUILD_EXT_CUDA_DIRECTORY_WHEEL)/dist/*-$(INSTALL_WHEEL_ARCH)*.whl
 
 ########################################################################################################################
 # Shell (for rapid development)
@@ -145,3 +157,7 @@ nnabla-ext-cuda-multi-gpu-test-local: nnabla-install nnabla-ext-cuda-install
 	cd $(BUILD_EXT_CUDA_DIRECTORY_WHEEL) \
 	&& $(NNABLA_DIRECTORY)/build-tools/make/pytest.sh $(NNABLA_DIRECTORY)/python/test \
 	&& $(NNABLA_DIRECTORY)/build-tools/make/pytest.sh $(NNABLA_EXT_CUDA_DIRECTORY)/python/test
+
+.PHONY: update-gpu-list
+update-gpu-list:
+	python3 ./build-tools/scripts/update_gpu_list.py

@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Sony Corporation. All Rights Reserved.
+// Copyright 2018,2019,2020,2021 Sony Corporation.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -42,7 +42,10 @@ public:
 protected:
   int device_;
 
-  int warp_size_, max_threads_per_block_;
+  int warp_size_;
+  int forward_kernel_max_threads_per_block_;
+  int backprop_input_max_threads_per_block_;
+  int backprop_weights_max_threads_per_block_;
 
   int input_data_size_;
   int output_data_size_;
