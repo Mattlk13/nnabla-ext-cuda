@@ -1,3 +1,7 @@
+***Notice: nnabla is under maintenance phase and we will not be actively developing.***
+
+----
+
 # A CUDA Extension of Neural Network Libraries
 
 This repository provides an official CUDA/cuDNN-accelerated extension of the
